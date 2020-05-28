@@ -19,7 +19,7 @@ class TestIgramscraper(unittest.TestCase):
             self.instagram = Instagram()
         else:
             self.instagram = Instagram()
-            self.instagram.with_credentials('ttt9999aaa', 'kkkevery')
+            self.instagram.with_credentials(username, password, session_folder)
             self.instagram.login()
         
         if user_agent != None:
