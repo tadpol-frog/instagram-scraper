@@ -358,6 +358,68 @@ class Instagram:
 
         return medias
 
+    def get_tagged_medias_by_user_id(self, id, count=12, max_id=''):
+        """
+        :param id: instagram account id
+        :param count: the number of how many media you want to get
+        :param max_id: used to paginate
+        :return: list of Tagged Media
+        """
+        index = 0
+        medias = []
+        is_more_available = True
+
+        while index < count and is_more_available:
+
+            variables = {
+                'id': str(id),
+                'first': str(count),
+                'after': str(max_id)
+            }
+
+            headers = self.generate_headers(self.user_session,
+                                            self.__generate_gis_token(
+                                                variables))
+
+            time.sleep(self.sleep_between_requests)
+            response = self.__req.get(
+                endpoints.get_account_tagged_medias_json_link(variables),
+                headers=headers)
+
+            if not Instagram.HTTP_OK == response.status_code:
+                raise InstagramException.default(response.text,
+                                                 response.status_code)
+
+            arr = json.loads(response.text)
+
+            try:
+                nodes = arr['data']['user']['edge_user_to_photos_of_you'][
+                    'edges']
+            except KeyError:
+                return {}
+
+            for mediaArray in nodes:
+                if index == count:
+                    return medias
+
+                media = Media(mediaArray['node'])
+                medias.append(media)
+                index += 1
+
+            if not nodes or nodes == '':
+                return medias
+
+            max_id = \
+                arr['data']['user']['edge_user_to_photos_of_you'][
+                    'page_info'][
+                    'end_cursor']
+            is_more_available = \
+                arr['data']['user']['edge_user_to_photos_of_you'][
+                    'page_info'][
+                    'has_next_page']
+
+        return medias
+
     def get_media_by_id(self, media_id):
         """
         :param media_id: media id
