@@ -10,6 +10,7 @@ LOGIN_URL = 'https://www.instagram.com/accounts/login/ajax/'
 ACCOUNT_PAGE = 'https://www.instagram.com/%s'
 MEDIA_LINK = 'https://www.instagram.com/p/%s'
 ACCOUNT_MEDIAS = 'https://www.instagram.com/graphql/query/?query_hash=42323d64886122307be10013ad2dcc44&variables=%s'
+ACCOUNT_TAGGED_MEDIAS = 'https://www.instagram.com/graphql/query/?query_hash=ff260833edf142911047af6024eb634a&variables=%s'
 ACCOUNT_JSON_INFO = 'https://www.instagram.com/%s/?__a=1'
 MEDIA_JSON_INFO = 'https://www.instagram.com/p/%s/?__a=1'
 MEDIA_JSON_BY_LOCATION_ID = 'https://www.instagram.com/explore/locations/%s/?__a=1&max_id=%s'
@@ -55,6 +56,8 @@ def get_account_json_private_info_link_by_account_id(account_id):
 def get_account_medias_json_link(variables):
     return ACCOUNT_MEDIAS % urllib.parse.quote_plus(json.dumps(variables, separators=(',', ':')))
 
+def get_account_tagged_medias_json_link(variables):
+    return ACCOUNT_TAGGED_MEDIAS % urllib.parse.quote_plus(json.dumps(variables, separators=(',', ':')))
 
 def get_media_page_link(code):
     return MEDIA_LINK % urllib.parse.quote_plus(code)

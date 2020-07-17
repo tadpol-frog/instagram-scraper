@@ -104,6 +104,10 @@ class TestIgramscraper(unittest.TestCase):
     def test_get_medias_by_user_id(self):
         medias = self.instagram.get_medias_by_user_id(3)
         self.assertEqual(12, len(medias))
+
+    def test_get_tagged_medias_by_user_id(self):
+        medias = self.instagram.get_tagged_medias_by_user_id(3)
+        self.assertEqual(12, len(medias))
     
     # TODO add like test
     # TODO add unlike test
@@ -114,4 +118,3 @@ class TestIgramscraper(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
-
