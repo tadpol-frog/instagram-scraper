@@ -19,6 +19,7 @@ from .model.user_stories import UserStories
 from .model.tag import Tag
 from . import endpoints
 from .two_step_verification.console_verification import ConsoleVerification
+import http.cookiejar
 
 class Instagram:
     HTTP_NOT_FOUND = 404
@@ -43,10 +44,18 @@ class Instagram:
 
         self.session_username = None
         self.session_password = None
+        self.cookie=None
         self.user_session = None
         self.rhx_gis = None
         self.sleep_between_requests = sleep_between_requests
         self.user_agent = 'Instagram 126.0.0.25.121 Android (23/6.0.1; 320dpi; 720x1280; samsung; SM-A310F; a3xelte; samsungexynos7580; en_GB; 110937453)'
+
+    def set_cookies(self,cookie):
+        cj = http.cookiejar.MozillaCookieJar(cookie)
+        cj.load()
+        cookie = requests.utils.dict_from_cookiejar(cj)
+        self.cookie=cookie
+        self.user_session = cookie
 
     def with_credentials(self, username, password, session_folder=None):
         """
@@ -1071,8 +1080,64 @@ class Instagram:
         :param max_id: used to paginate
         :return: Comment List
         """
-        code = Media.get_code_from_id(media_id)
-        return self.get_media_comments_by_code(code, count, max_id)
+        #code = Media.get_code_from_id(media_id)
+
+        #return self.get_media_comments_by_code(code, count, max_id)
+        comments = []
+        index = 0
+        has_previous = True
+
+        while has_previous and index < count:
+            number_of_comments_to_receive = 0
+            if count - index > Instagram.MAX_COMMENTS_PER_REQUEST:
+                number_of_comments_to_receive = Instagram.MAX_COMMENTS_PER_REQUEST
+            else:
+                number_of_comments_to_receive = count - index
+
+            variables = {
+                "id": str(media_id),
+                "first": str(number_of_comments_to_receive),
+                "after": '' if not max_id else max_id
+            }
+
+            comments_url = endpoints.get_comments_before_comments_id_by_code(
+                variables)
+
+            time.sleep(self.sleep_between_requests)
+            response = self.__req.get(comments_url,
+                                      headers=self.generate_headers(
+                                          self.user_session,
+                                          self.__generate_gis_token(variables)))
+
+            if not response.status_code == Instagram.HTTP_OK:
+                raise InstagramException.default(response.text,
+                                                 response.status_code)
+
+            jsonResponse = response.json()
+
+            nodes = jsonResponse['data']['shortcode_media']['edge_media_to_parent_comment']['edges']
+
+            for commentArray in nodes:
+                comment = Comment(commentArray['node'])
+                comments.append(comment)
+                index += 1
+
+            has_previous = jsonResponse['data']['shortcode_media']['edge_media_to_parent_comment']['page_info'][
+                'has_next_page']
+
+            number_of_comments = jsonResponse['data']['shortcode_media']['edge_media_to_parent_comment']['count']
+            if count > number_of_comments:
+                count = number_of_comments
+
+            max_id = jsonResponse['data']['shortcode_media']['edge_media_to_parent_comment']['page_info']['end_cursor']
+
+            if len(nodes) == 0:
+                break
+
+        data = {}
+        data['next_page'] = max_id
+        data['comments'] = comments
+        return data
 
     def get_media_comments_by_code(self, code, count=10, max_id=''):
 
@@ -1242,17 +1307,15 @@ class Instagram:
         except KeyError:
             return []
 
-        stories = []
+        all_stories = []
         for user in reels_media:
             user_stories = UserStories()
-
             user_stories.owner = Account(user['user'])
             for item in user['items']:
                 story = Story(item)
                 user_stories.stories.append(story)
-
-            stories.append(user_stories)
-        return stories
+            all_stories.append(user_stories)
+        return all_stories
 
     def search_accounts_by_username(self, username):
         """
@@ -1343,8 +1406,12 @@ class Instagram:
         :param session: session dict
         :return: bool
         """
+        if self.cookie!=None:
+            return True
+
         if session is None or 'sessionid' not in session.keys():
             return False
+
 
         session_id = session['sessionid']
         csrf_token = session['csrftoken']
@@ -1359,11 +1426,14 @@ class Instagram:
 
         time.sleep(self.sleep_between_requests)
         response = self.__req.get(endpoints.BASE_URL, headers=headers)
+        test=response.status_code
+        test2=Instagram.HTTP_OK
 
         if not response.status_code == Instagram.HTTP_OK:
             return False
 
         cookies = response.cookies.get_dict()
+
 
         if cookies is None or not 'ds_user_id' in cookies.keys():
             return False
@@ -1646,8 +1716,8 @@ class Instagram:
         :return: bool
         """
         if self.is_logged_in(self.user_session):
-            url = endpoints.get_follow_url(user_id)
-
+            user_id_number = self.get_account(user_id).identifier
+            url = endpoints.get_follow_url(user_id_number)
             try:
                 follow = self.__req.post(url,
                                          headers=self.generate_headers(
@@ -1664,7 +1734,8 @@ class Instagram:
         :return: bool
         """
         if self.is_logged_in(self.user_session):
-            url_unfollow = endpoints.get_unfollow_url(user_id)
+            user_id_number = self.get_account(user_id).identifier
+            url_unfollow = endpoints.get_unfollow_url(user_id_number)
             try:
                 unfollow = self.__req.post(url_unfollow)
                 if unfollow.status_code == Instagram.HTTP_OK:
@@ -1678,8 +1749,11 @@ class Instagram:
         :param user_id: user id
         :return: bool
         """
+
+
         if self.is_logged_in(self.user_session):
-            url_block = endpoints.get_block_url(user_id)
+            user_id_number=self.get_account(user_id).identifier
+            url_block = endpoints.get_block_url(user_id_number)
             try:
                 block = self.__req.post(url_block,
                                         headers=self.generate_headers(
@@ -1695,8 +1769,10 @@ class Instagram:
         :param user_id: user id
         :return: bool
         """
+
         if self.is_logged_in(self.user_session):
-            url_unblock = endpoints.get_unblock_url(user_id)
+            user_id_number = self.get_account(user_id).identifier
+            url_unblock = endpoints.get_unblock_url(user_id_number)
             try:
                 unblock = self.__req.post(url_unblock,
                                           headers=self.generate_headers(

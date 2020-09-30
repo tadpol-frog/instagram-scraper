@@ -2,10 +2,8 @@ from .initializer_model import InitializerModel
 
 class UserStories(InitializerModel):
 
-    def __init__(self, stories=[], owner=None):
-        if stories is None:
-            stories = []
+    def __init__(self, stories=None, owner=None):
         self.owner = owner
-        self.stories = stories
+        if stories==None:
+            self.stories = []
         super().__init__()
-
