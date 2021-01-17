@@ -20,6 +20,7 @@ from .model.tag import Tag
 from . import endpoints
 from .two_step_verification.console_verification import ConsoleVerification
 import http.cookiejar
+from torpy.http.requests import do_request as tor_request
 
 class Instagram:
     HTTP_NOT_FOUND = 404
@@ -36,7 +37,8 @@ class Instagram:
 
     instance_cache = None
 
-    def __init__(self, sleep_between_requests=0):
+    def __init__(self, sleep_between_requests=0, use_tor=True):
+        self.use_tor = use_tor
         self.__req = requests.session()
         self.paging_time_limit_sec = Instagram.PAGING_TIME_LIMIT_SEC
         self.paging_delay_minimum_microsec = Instagram.PAGING_DELAY_MINIMUM_MICROSEC
@@ -625,9 +627,13 @@ class Instagram:
         :return: list of the top Media
         """
         time.sleep(self.sleep_between_requests)
-        response = self.__req.get(
-            endpoints.get_medias_json_by_tag_link(tag_name, ''),
-            headers=self.generate_headers(self.user_session))
+        if self.use_tor:
+            response = tor_request(endpoints.get_medias_json_by_tag_link(tag_name, ''), 
+                            headers=self.generate_headers(self.user_session))
+        else:
+            response = self.__req.get(
+                endpoints.get_medias_json_by_tag_link(tag_name, ''),
+                headers=self.generate_headers(self.user_session))
 
         if response.status_code == Instagram.HTTP_NOT_FOUND:
             raise InstagramNotFoundException(
