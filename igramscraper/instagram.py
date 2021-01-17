@@ -587,10 +587,14 @@ class Instagram:
         while index < count and has_next_page:
 
             time.sleep(self.sleep_between_requests)
-            response = self.__req.get(
-                endpoints.get_medias_json_by_location_id_link(
-                    facebook_location_id, max_id),
-                headers=self.generate_headers(self.user_session))
+            if self.use_tor:
+                response = tor_request(endpoints.get_medias_json_by_location_id_link(facebook_location_id), 
+                                headers=self.generate_headers(self.user_session))
+            else:
+                response = self.__req.get(
+                    endpoints.get_medias_json_by_location_id_link(
+                        facebook_location_id, max_id),
+                    headers=self.generate_headers(self.user_session))
 
             if response.status_code != Instagram.HTTP_OK:
                 raise InstagramException.default(response.text,
@@ -661,9 +665,13 @@ class Instagram:
         :return: list of the top Media
         """
         time.sleep(self.sleep_between_requests)
-        response = self.__req.get(
-            endpoints.get_medias_json_by_location_id_link(facebook_location_id),
-            headers=self.generate_headers(self.user_session))
+        if self.use_tor:
+            response = tor_request(endpoints.get_medias_json_by_location_id_link(facebook_location_id), 
+                            headers=self.generate_headers(self.user_session))
+        else:
+            response = self.__req.get(
+                endpoints.get_medias_json_by_location_id_link(facebook_location_id),
+                headers=self.generate_headers(self.user_session))
         if response.status_code == Instagram.HTTP_NOT_FOUND:
             raise InstagramNotFoundException(
                 "Location with this id doesn't exist")
