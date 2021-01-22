@@ -1,6 +1,7 @@
 import time
 import requests
 import re
+import socket
 import json
 import hashlib
 import os
@@ -20,7 +21,11 @@ from .model.tag import Tag
 from . import endpoints
 from .two_step_verification.console_verification import ConsoleVerification
 import http.cookiejar
-from torpy.http.requests import do_request as tor_request
+from torpy.http.requests import tor_requests_session
+import logging
+import sys
+
+logme = logging.getLogger(__name__)
 
 class Instagram:
     HTTP_NOT_FOUND = 404
@@ -37,13 +42,17 @@ class Instagram:
 
     instance_cache = None
 
-    def __init__(self, sleep_between_requests=0, use_tor=True):
+    def __init__(self, sleep_between_requests=0, use_tor=True, retry_count=3, hops=3):
+        self.retry_count = retry_count
+        self.hops = hops
         self.use_tor = use_tor
         self.__req = requests.session()
         self.paging_time_limit_sec = Instagram.PAGING_TIME_LIMIT_SEC
         self.paging_delay_minimum_microsec = Instagram.PAGING_DELAY_MINIMUM_MICROSEC
         self.paging_delay_maximum_microsec = Instagram.PAGING_DELAY_MAXIMUM_MICROSEC
 
+        self.Tor_control_port = 9051
+        self.Tor_control_password = None
         self.session_username = None
         self.session_password = None
         self.cookie=None
@@ -58,6 +67,20 @@ class Instagram:
         cookie = requests.utils.dict_from_cookiejar(cj)
         self.cookie=cookie
         self.user_session = cookie
+    
+    def ForceNewTorIdentity(self):
+        logme.debug(__name__ + ':ForceNewTorIdentity')
+        try:
+            tor_c = socket.create_connection(('127.0.0.1', self.Tor_control_port))
+            tor_c.send('AUTHENTICATE "{}"\r\nSIGNAL NEWNYM\r\n'.format(self.Tor_control_password).encode())
+            response = tor_c.recv(1024)
+            if response != b'250 OK\r\n250 OK\r\n':
+                sys.stderr.write('Unexpected response from Tor control port: {}\n'.format(response))
+                logme.critical(__name__ + ':ForceNewTorIdentity:unexpectedResponse')
+        except Exception as e:
+            logme.debug(__name__ + ':ForceNewTorIdentity:errorConnectingTor')
+            sys.stderr.write('Error connecting to Tor control port: {}\n'.format(repr(e)))
+            sys.stderr.write('If you want to rotate Tor ports automatically - enable Tor control port\n')
 
     def with_credentials(self, username, password, session_folder=None):
         """
@@ -125,9 +148,26 @@ class Instagram:
         :return: username string from response
         """
         time.sleep(self.sleep_between_requests)
-        response = self.__req.get(
-            endpoints.get_account_json_private_info_link_by_account_id(
-                id), headers=self.generate_headers(self.user_session))
+        if self.use_tor:
+            retries = 0
+            while retries < self.retry_count:
+                logme.warning("Getting new TOR session. Please wait...")
+                with tor_requests_session(hops_count=self.hops, retries=self.retry_count) as s:
+                    headers = dict(self.generate_headers(self.user_session) or [])
+                    request = requests.Request('GET',  endpoints.get_account_json_private_info_link_by_account_id(
+                                                id), headers=headers)
+                    try:
+                        response = s.send(request.prepare(), timeout=10)
+                    except Exception:
+                        logme.warning("Timeout reached")
+                retries += 1
+                if response and response.status_code == Instagram.HTTP_OK:
+                    break
+                #self.ForceNewTorIdentity()
+        else:
+            response = self.__req.get(
+                endpoints.get_account_json_private_info_link_by_account_id(
+                    id), headers=self.generate_headers(self.user_session))
 
         if Instagram.HTTP_NOT_FOUND == response.status_code:
             raise InstagramNotFoundException(
@@ -136,7 +176,7 @@ class Instagram:
         if Instagram.HTTP_OK != response.status_code:
             raise InstagramException.default(response.text,
                                              response.status_code)
-
+        
         json_response = response.json()
         if not json_response:
             raise InstagramException('Response does not JSON')
@@ -573,7 +613,7 @@ class Instagram:
         return medias
 
     def get_medias_by_location_id(self, facebook_location_id, count=24,
-                                  max_id=''):
+                                  max_id='', retry_count=0):
         """
         :param facebook_location_id: facebook location id
         :param count: the number of how many media you want to get
@@ -588,20 +628,24 @@ class Instagram:
 
             time.sleep(self.sleep_between_requests)
             if self.use_tor:
-                response = tor_request(endpoints.get_medias_json_by_location_id_link(facebook_location_id), 
-                                headers=self.generate_headers(self.user_session))
+                with tor_requests_session(hops_count=self.hops, retries=self.retry_count) as s:
+                    headers = dict(self.generate_headers(self.user_session) or [])
+                    request = requests.Request('GET', endpoints.get_medias_json_by_location_id_link(facebook_location_id), 
+                                        headers=headers)
+                    response = s.send(request.prepare())
             else:
                 response = self.__req.get(
                     endpoints.get_medias_json_by_location_id_link(
                         facebook_location_id, max_id),
                     headers=self.generate_headers(self.user_session))
 
+            
             if response.status_code != Instagram.HTTP_OK:
                 raise InstagramException.default(response.text,
                                                  response.status_code)
 
             arr = response.json()
-
+            print(arr)
             nodes = arr['graphql']['location']['edge_location_to_media'][
                 'edges']
             for media_array in nodes:
@@ -1264,7 +1308,7 @@ class Instagram:
                                              response.status_code)
 
         user_array = Instagram.extract_shared_data_from_body(response.text)
-
+        print(user_array)
         if user_array['entry_data']['ProfilePage'][0]['graphql']['user'] is None:
             raise InstagramNotFoundException(
                 'Account with this username does not exist')
